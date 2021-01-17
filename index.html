@@ -52,9 +52,9 @@ A game by Alex "Arch" Chen for Rose Hack 2021
 
 
 ARROWS || WASD - MOVE
+Z || F         - ROSE
+X || CLICK     - HACK
 C || SPACEBAR  - JUMP
-X || F         - ROSE
-Z || CLICK     - HACK
 S || P         - PLAY
 
 Grow a ROSE to reach new heights! Guide your ROSE with the arrow keys!
@@ -354,6 +354,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 this.position = position;
                 this.velocity = velocity;
                 this.lifetime = lifetime || 90;
+                this.falling = stemSource.falling;
             }
             get active() {
                 return this.lifetime > 0;
@@ -370,7 +371,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                     if (tile && tile != this && tile.solid) {
                         this.lifetime = 0;
                     }
-                    let p = new Petal(this, this.stemSource, this.position.clone);
+                    let p = new Petal(this, this.position.clone, this.falling);
                     stem.petals.push(p);
                     entities.push(p);
                     this.position = nextPosition;
@@ -385,12 +386,13 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 this.velocity = velocity;
                 this.lifetime = lifetime || 120;
                 this._active = true;
+                this.falling = false;
 
                 this.petals = [];
                 this.segments = [];
 
                 this.bloom = true;
-                console.log('stem');
+                //console.log('stem');
             }
             get active() {
                 return this.lifetime > 0 && this._active;
@@ -435,22 +437,23 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
             }
         }
         class Petal {
-            constructor(petalSource, stemSource, position) {
+            constructor(petalSource, position) {
                 this.petalSource = petalSource;
-                this.stemSource = stemSource;
+                this.stemSource = petalSource.stemSource;
                 this.position = position;
                 this.velocity = new Point(0, 0);
                 this.active = true;
-                this.falling = false;
+                this.falling = petalSource.falling;
             }
             get ground() {
                 return true;
             }
             fall() {
+                this.stemSource.falling = true;
                 let petals = this.stemSource.petals;
                 for (let j = 0; j < petals.length; j++) {
                     petals[j].falling = true;
-                    petals[j].petalSource.lifetime = 0;
+                    petals[j].petalSource.falling = true;
                 }
             }
             update() {
@@ -483,12 +486,13 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 this.position = position;
                 this.velocity = new Point(0, 0);
                 this.active = true;
-                this.falling = false;
+                this.falling = stemSource.falling;
             }
             get ground() {
                 return true;
             }
             fall() {
+                this.stemSource.falling = true;
                 let segments = this.stemSource.segments;
                 for (let j = segments.indexOf(this); j < segments.length; j++) {
                     segments[j].falling = true;
@@ -496,7 +500,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 let petals = this.stemSource.petals;
                 for (let j = 0; j < petals.length; j++) {
                     petals[j].falling = true;
-                    petals[j].petalSource.lifetime = 0;
+                    petals[j].petalSource.falling = true;
                 }
             }
             update() {
@@ -856,6 +860,8 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
             let up = keys[38] || keys['w'];
             let right = keys[39] || keys['d'];
             let down = keys[40] || keys['s'];
+            let useHack = keys['x'] || keys['e'];
+            let useRose = keys['z'] || keys['f'];
             if (stem && stem.active) {
 
                 if (left || right || up || down) {
@@ -875,7 +881,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                     stem.velocity = new Point(velX, velY);
                 }
 
-                if (keys['z']) {
+                if (useHack) {
                     stem.lifetime = Math.min(stem.lifetime, 1);
                 }
             } else if (player) {
@@ -886,7 +892,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 if (keys['p']) {
                     player.position = player.lastSafePosition.clone;
                 }
-                if (keys['x'] || keys['f']) {
+                if (useRose) {
                     if ((!seed || !seed.active) && (!stem || stem.petals.filter(p => p.active).length == 0)
                         //&& g && g instanceof Dirt
                     ) {
@@ -896,7 +902,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                         seed = new Seed(player.position);
                         entities.push(seed);
                     }
-                } else if (keys['z']) {
+                } else if (useHack) {
                     fireHack();
 
                 }
@@ -972,7 +978,7 @@ Only one ROSE at a time! HACK your ROSE to grow another one!
                 ctx.font = `bold ${72}px Inconsolata`;
                 ctx.textAlign = "center";
 
-                let lines = ["You have ascended the Great Rose!", `Time: ${player.time/60}`];
+                let lines = ["You have ascended the Great Rose!", `Time: ${player.time/30}`];
 
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i];
