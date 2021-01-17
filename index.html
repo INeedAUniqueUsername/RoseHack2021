@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            border: 0px solid black;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id='canvasBack' width='1440' height='720'></canvas>
+    <script type="text/javascript">
+
+		let canvas = document.getElementById('canvasBack');
+		let ctx = canvas.getContext('2d');
+
+        window.requestAnimationFrame(updateTitle);
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        let ticks = 0;
+        function updateTitle() {
+            ticks++;
+            drawWorld();
+
+            let lines = `
+*****   ******  ******  ******    **    *    *   ****   ******  *   **
+*    *  *    *  *       *         **    *    *  *    *  *       * **  
+*****   *    *  ******  ******    **    ******  ******  *       **    
+*   *   *    *       *  *         **    *    *  *    *  *       * **  
+*    *  ******  ******  ******    **    *    *  *    *  ******  *   **
+
+Climb the Great Rose!
+
+Arrow keys to move
+X to ROSE
+Z to HACK
+S to START
+
+Only one ROSE at a time!
+HACK your rose to plant another one!
+`.split('\n');
+
+            ctx.font = `bold ${40}px Inconsolata`;
+            ctx.textAlign = "center";
+
+            for (let i = 0; i < lines.length; i++) {
+
+                ctx.fillStyle = '#000000';
+                ctx.fillText(lines[i], width / 2 + 4, 32 + i * 42 + 4);
+
+                if (ticks % 60 < 30) {
+                    ctx.fillStyle = '#FF7777';
+                } else {
+                    ctx.fillStyle = '#FF3333';
+                }
+                ctx.fillText(lines[i], width / 2, 32 + i * 42);
+                console.log('line');
+            }
+            if (keys['x'] || keys['y']) {
+                window.requestAnimationFrame(update);
+            } else {
+                window.requestAnimationFrame(updateTitle);
+            }
+        }
+
+        let tileSize = 16;
+        let maxWalk = 6;
+
+        class Point {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            get clone() {
+                return new Point(this.x, this.y);
+            }
+            align() {
+                return new Point(Math.floor(this.x / tileSize) * tileSize,
+                    Math.floor(this.y / tileSize) * tileSize);
+            }
+            multiply(length) {
+                return new Point(this.x * length, this.y * length);
+            }
+            divide(length) {
+                return new Point(this.x / length, this.y / length);
+            }
+            length() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+            normal() {
+                let length = this.length();
+                if (length > 0) {
+                    return new Point(this.x / length, this.y / length);
+                } else {
+                    return new Point(this.x, this.y);
+                }
+            }
+            plus(x, y) {
+                return new Point(this.x + x, this.y + y);
+            }
+            get str() {
+                return `${this.x}_${this.y}`;
+            }
+        }
+
+        function isWalkable(tile) {
+            return tile.ground || tile.solid;
+        }
+
+        class Seed {
+            constructor(position) {
+                this.position = position;
+                this.velocity = new Point(0, 0);
+                this.active = true;
+            }
+            update() {
+                this.lifetime--;
+
+                let length = this.velocity.length();
+                let step = Math.min(length, tileSize);
+                let direction = this.velocity.divide(length).multiply(step);
+                for (let i = 0; i < length; i += step) {
+                    let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                    let tile = getTile(nextPosition.align());
+                    if (tile && tile != this && tile instanceof Dirt) {
+                        this.active = false;
+
+                        stem = new StemHead(this.position.clone, new Point(0, 5));
+                        entities.push(stem);
+                    }
+                    this.position = nextPosition;
+
+                }
+                this.velocity.y -= 9.8 / 30;
+            }
+
+            get color() {
+                return '#AA0022';
+            }
+            get symbol() {
+                return 's';
+            }
+        }
+
+        class PetalHead {
+            constructor(stem, position, velocity, lifetime) {
+                this.stem = stem;
+                this.position = position;
+                this.velocity = velocity;
+                this.lifetime = lifetime || 90;
+                this._active = true;
+            }
+            get active() {
+                return this.lifetime > 0 && this._active;
+            }
+            update() {
+                this.lifetime--;
+
+                let length = this.velocity.length();
+                let step = Math.min(length, tileSize);
+                let direction = this.velocity.divide(length).multiply(step);
+                for (let i = 0; i < length; i += step) {
+                    let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                    let tile = getTile(nextPosition.align());
+                    if (tile && tile != this && tile.solid) {
+                        this._active = false;
+                    }
+                    let p = new Petal(this.stem, this.position.clone);
+                    stem.petals.push(p);
+                    entities.push(p);
+                    this.position = nextPosition;
+
+                }
+            }
+        }
+
+        class StemHead {
+            constructor(position, velocity) {
+                this.position = position;
+                this.velocity = velocity;
+                this.lifetime = 120;
+                this._active = true;
+
+                this.petals = [];
+                this.segments = [];
+
+                this.bloom = true;
+                console.log('stem');
+            }
+            get active() {
+                return this.lifetime > 0 && this._active;
+            }
+            update() {
+                this.lifetime--;
+
+                let length = this.velocity.length();
+                let step = Math.min(length, tileSize);
+                let direction = this.velocity.divide(length).multiply(step);
+                for (let i = 0; i < length; i += step) {
+                    let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                    let tile = getTile(nextPosition.align());
+                    if (tile && tile != this && tile.solid) {
+                        this._active = false;
+                        console.log('stem end');
+                    }
+                    let s = new Stem(this, this.position.clone);
+                    this.segments.push(s);
+
+                    entities.push(s);
+
+                    this.position = nextPosition;
+                }
+
+                if (this.lifetime < 3 && this.bloom) {
+                    this.bloom = false;
+                    let v = this.velocity;
+                    let p = this.position;
+                    entities.push(new PetalHead(this, p, new Point(0, v.y), 60));
+                    entities.push(new PetalHead(this, p.clone, new Point(-0.5, v.y), 60));
+                    entities.push(new PetalHead(this, p.clone, new Point(-1, v.y), 45));
+                    entities.push(new PetalHead(this, p.clone, new Point(0.5, v.y), 60));
+                    entities.push(new PetalHead(this, p.clone, new Point(1, v.y), 45));
+                }
+            }
+            get color() {
+                return '#22FF22';
+            }
+            get symbol() {
+                return '%';
+            }
+        }
+        class Petal {
+            constructor(stem, position) {
+                this.stem = stem;
+                this.position = position;
+                this.velocity = new Point(0, 0);
+                this.active = true;
+                this.falling = false;
+            }
+            get ground() {
+                return true;
+            }
+            update() {
+                if (this.falling) {
+                    let length = this.velocity.length();
+                    let step = Math.min(tileSize, length);
+                    let direction = this.velocity.divide(length).multiply(step);
+                    for (let i = 0; i < length; i += step) {
+                        let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                        let tile = getTile(nextPosition.align());
+                        if (tile && tile != this && tile instanceof Dirt) {
+                            this.active = false;
+                        }
+                        this.position = nextPosition;
+                    }
+                    this.velocity.y -= 9.8 / 30;
+                }
+            }
+            get color() {
+                return '#FF2222';
+            }
+            get symbol() {
+                return 'P';
+            }
+        }
+        class Stem {
+            constructor(stem, position) {
+                this.stem = stem;
+                this.position = position;
+                this.velocity = new Point(0, 0);
+                this.active = true;
+                this.falling = false;
+            }
+            get ground() {
+                return true;
+            }
+            update() {
+                if (this.falling) {
+                    let length = this.velocity.length();
+                    let direction = this.velocity.divide(length);
+                    for (let i = 0; i < length; i++) {
+                        let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                        let tile = getTile(nextPosition.align());
+                        if (tile && tile != this && tile instanceof Dirt) {
+                            this.active = false;
+                        }
+                        this.position = nextPosition;
+                    }
+                    this.velocity.y -= 9.8 / 30;
+                }
+            }
+            get color() {
+                return '#22FF22';
+            }
+            get symbol() {
+                return 'S';
+            }
+        }
+
+        class Dirt {
+            constructor(position) {
+                switch (Math.floor(Math.random() * 5)) {
+                    case 0:
+                        this.color = '#22AA22';
+                        break;
+                    case 1:
+                        this.color = '#55DD33';
+                        break;
+                    case 2:
+                        this.color = '#55BB88';
+                        break;
+                    case 3:
+                        this.color = '#77CC55';
+                        break;
+                    case 4:
+                        this.color = '#55FF55';
+                        break;
+                }
+                this.symbol = '#';
+            }
+            get floor() {
+                return true;
+            }
+            get solid() {
+                return true;
+            }
+        }
+        class Dot {
+            constructor(position) {
+                this.position = position;
+                this.lifetime = 2;
+            }
+            update() {
+                this.lifetime--;
+            }
+            get solid() {
+                return false;
+            }
+            get active() {
+                return this.lifetime > 0;
+            }
+            get color() {
+                return '#999999';
+            }
+            get symbol() {
+                return '.';
+            }
+        }
+        class Hack {
+            constructor(position, velocity) {
+                this.position = position;
+                this.velocity = velocity;
+
+                this.lifetime = 90;
+            }
+            get active() {
+                return this.lifetime > 0;
+            }
+            update() {
+                this.lifetime--;
+
+
+                let length = this.velocity.length();
+                let direction = this.velocity.divide(length);
+                for (let i = 0; i < length; i++) {
+
+                    let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+
+                    let tile = getTile(nextPosition.align());
+
+                    if (tile && (tile instanceof Petal || tile instanceof Stem) && !tile.falling) {
+                        tile.falling = true;
+
+                        for (let j = 0; j < tile.stem.segments.length; j++) {
+                            tile.stem.segments[j].falling = true;
+                        }
+                        for (let j = 0; j < tile.stem.petals.length; j++) {
+                            tile.stem.petals[j].falling = true;
+                        }
+                        return;
+
+                        let next = [];
+
+                        let p = tile.position;
+
+                        let inc = tileSize + 1;
+                        next.push(new Point(p.x + inc, p.y));
+                        next.push(new Point(p.x - inc, p.y));
+                        next.push(new Point(p.x, p.y + inc));
+                        next.push(new Point(p.x, p.y - inc));
+
+                        next.push(new Point(p.x + inc, p.y + inc));
+                        next.push(new Point(p.x - inc, p.y + inc));
+                        next.push(new Point(p.x + inc, p.y - inc));
+                        next.push(new Point(p.x - inc, p.y - inc));
+
+                        let checks = 16;
+                        let seen = {};
+                        while (next.length > 0) {
+                            console.log('point');
+                            p = next.shift();
+                            if (seen[p.str]) {
+                                continue;
+                            }
+                            seen[p.str] = true;
+                            tile = getTile(p);
+                            if (checks--> 0 && tile && (tile instanceof Petal || tile instanceof Stem)) {
+                                tile.falling = true;
+
+                                next.push(new Point(p.x + inc, p.y));
+                                next.push(new Point(p.x - inc, p.y));
+                                next.push(new Point(p.x, p.y + inc));
+                                next.push(new Point(p.x, p.y - inc));
+
+                                next.push(new Point(p.x + inc, p.y + inc));
+                                next.push(new Point(p.x - inc, p.y + inc));
+                                next.push(new Point(p.x + inc, p.y - inc));
+                                next.push(new Point(p.x + inc, p.y - inc));
+                            }
+                        }
+                    }
+
+                    this.position = nextPosition;
+                    //console.log(`hack i ${i}`);
+                }
+                //console.log('hack update');
+            }
+
+            get color() {
+                return '#FFFF00';
+            }
+            get symbol() {
+                return '*';
+            }
+        }
+
+
+        class Player {
+            constructor(position) {
+                this.position = position;
+                this.velocity = new Point(0, 0);
+            }
+            get x() {
+                return this.position.x;
+            }
+            get y() {
+                return this.position.y;
+            }
+            get active() {
+                return true;
+            }
+            getGround() {
+                return getTile(new Point(this.position.x + 0, this.position.y - tileSize).align());
+            }
+            update() {
+                ///console.log(`velocity: ${this.velocity.str}`);
+
+                if (getTile(this.position) instanceof Stem) {
+                    if (getTile(new Point(this.position.x, this.position.y + 1)) instanceof Stem) {
+                        this.position.y++;
+                    }
+                }
+
+
+                let length = this.velocity.length();
+                let direction = this.velocity.divide(length);
+                for (let i = 0; i < length; i++) {
+                    let nextPosition = new Point(this.position.x + direction.x, this.position.y + direction.y);
+                    let tile = getTile(nextPosition.align());
+                    if (tile && tile != this && tile.solid) {
+                        this.velocity = new Point(0, 0);
+                    } else {
+                        this.position = nextPosition;
+                    }
+                }
+                let ground = this.getGround();
+                if (getTile(new Point(this.position.x, this.position.y + 1)) instanceof Stem) {
+                    this.velocity.x = 0;
+                    if (this.velocity.y < 0) {
+                        this.velocity.y = 0;
+                    }
+                } else if (ground && isWalkable(ground)) {
+                    if (this.velocity.y < 0) {
+                        this.velocity.y = 0;
+                    }
+                    let speedX = Math.abs(this.velocity.x);
+                    if (speedX > 0) {
+                        this.velocity.x -= Math.sign(this.velocity.x) / 30;
+                    }
+                } else {
+                    this.velocity.y -= 9.8 / 60;
+                    console.log('FALL');
+                }
+                //console.log(`update at ${this.position.str}`);
+                this.position = new Point(this.position.x + this.velocity.x, this.position.y + this.velocity.y);
+            }
+            get color() {
+                return '#FFFFFF';
+            }
+            get symbol() {
+                return '@';
+            }
+        }
+        let entities = [];
+        let world = [];
+        let tiles = [];
+
+        function updateWorld() {
+            //console.log('update');
+
+            let nextEntities = [];
+            let nextWorld = [];
+            for (let i = 0; i < entities.length; i++) {
+                let e = entities[i];
+                e.update(world);
+                if (e.active) {
+                    nextEntities.push(e);
+                    nextWorld[e.position.align().str] = e;
+                }
+
+                //console.log(`entity (position: ${e.position.str})`);
+            }
+            entities = nextEntities;
+            world = nextWorld;
+            //console.log(`entity count: ${entities.length}`);
+            
+        }
+
+        let player = new Player(new Point(72, 72));
+        let seed = null;
+        let stem = null;
+        let hack = null;
+
+        entities.push(player);
+        updateWorld();
+
+        function getTile(position) {
+            let tile = world[position.str] || tiles[position.str];
+            if (tile) {
+                //console.log('tile found');
+                return tile;
+            } else if (position.y < 0 && position.y > -tileSize * 16) {
+                tiles[position.str] = new Dirt(position);
+                return world[position.str];
+            }
+        }
+
+        let keys = {};
+
+        window.onkeydown = e => {
+            console.log('keydown');
+            keys[e.which] = true;
+            keys[e.key] = true;
+        };
+        document.onkeyup = e => {
+            console.log('keyup');
+            keys[e.which] = false;
+            keys[e.key] = false;
+        };
+
+        let facing = new Point(0, 0);
+
+        function update() {
+            
+
+
+
+            if (stem && stem.active) {
+                let left = keys[37];
+                let up = keys[38];
+                let right = keys[39];
+                let down = keys[40];
+
+                if (left || right || up || down) {
+                    let velX = 0;
+                    if (left && !right) {
+                        velX = -3;
+                    } else if (!left && right) {
+                        velX = 3;
+                    }
+
+                    let velY = 2;
+                    if (up && !down) {
+                        velY = 3;
+                    } else if (!up && down) {
+                        velY = 1;
+                    }
+                    stem.velocity = new Point(velX, velY);
+                }
+            } else if (player) {
+                let move = true;
+                let left = keys[37];
+                let up = keys[38];
+                let right = keys[39];
+                let down = keys[40];
+
+                let g = player.getGround();
+
+                if (keys['x']) {
+                    if ((!seed || !seed.active) && (!stem || stem.petals.filter(p => p.active).length == 0)
+                        //&& g && g instanceof Dirt
+                    ) {
+                        let p = player.position;
+                        //stem = new StemHead(new Point(p.x + facing.x, p.y), new Point(0, 4));
+                        //entities.push(stem);
+                        seed = new Seed(player.position);
+                        entities.push(seed);
+                    }
+                } else if (keys['z']) {
+                    if (facing.length() > 0 && (!hack || !hack.active)) {
+                        let p = player.position;
+
+                        for (let i = 1; i < 6; i++) {
+                            hack = new Hack(new Point(p.x + facing.x * i * tileSize, p.y + facing.y * i * tileSize), new Point(facing.x * 30, facing.y * 30));
+                            entities.push(hack);
+                        }
+                        //console.log('hack');
+                    } else {
+                        //console.log(`no hack ${hack.lifetime}`);
+                    }
+
+                }
+
+                if (move) {
+                    if (left) {
+                        // Key left.
+                        if (Math.abs(player.velocity.x) < maxWalk) {
+                            player.velocity.x += -2 / 30;
+                        }
+                    }
+                    if (right) {
+                        if (Math.abs(player.velocity.x) < maxWalk) {
+                            player.velocity.x += 2 / 30;
+                        }
+                        // Key right.
+                    }
+
+                    if (up) {
+                        let ground = player.getGround();
+                        if (ground && isWalkable(ground) && player.velocity.y <= 0) {
+                            player.velocity.y = 6;
+                            // Key up.
+                        }
+                    }
+                    if (down) {
+                        let ground = player.getGround();
+                        if (ground && !ground.solid) {
+                            //player.velocity.y += -1 / 30;
+                        }
+                        // Key down.
+                    }
+                }
+
+                if (left || right || up || down) {
+                    let facingX = 0;
+                    if (left && !right) {
+                        facingX = -1;
+                    } else if (!left && right) {
+                        facingX = 1;
+                    }
+
+                    let facingY = 0;
+                    if (up && !down) {
+                        facingY = 1;
+                    } else if (!up && down) {
+                        facingY = -1;
+                    }
+                    facing = new Point(facing.x + facingX, facing.y + facingY).normal();
+                }
+            }
+
+            if (facing.length() > 0) {
+                let facingPosition = player.position.clone;
+                //console.log(`facing`);
+
+                for (let i = 0; i < 5; i++) {
+                    facingPosition.x += facing.x * tileSize;
+                    facingPosition.y += facing.y * tileSize;
+                    entities.push(new Dot(facingPosition.clone));
+                    //console.log(`${facingPosition.x}, ${facingPosition.y}`);
+                }
+            }
+
+            updateWorld();
+            drawWorld();
+
+            window.requestAnimationFrame(update);
+
+        }
+
+        function drawWorld() {
+
+            //	Fill background
+            ctx.beginPath();
+            ctx.rect(0, 0, width, height);
+            ctx.fillStyle = "black";
+            ctx.fill();
+
+            ctx.font = `bold ${tileSize + 8}px Inconsolata`;
+            ctx.textAlign = "center";
+
+            let camera = player.position.align();
+
+            for (let x = 0; x < width; x += tileSize) {
+                for (let y = 0; y < height; y += tileSize) {
+
+                    let wx = x - width / 2 + camera.x;
+                    let wy = y - height / 2 + camera.y;
+                    let wp = new Point(wx, wy).align();
+
+                    //console.log(`drawing ${wp}`);
+
+                    let tile = getTile(wp);
+                    if (tile) {
+                        ctx.fillStyle = tile.color;
+                        ctx.fillText(tile.symbol, x, height - y);
+
+                        //ctx.fillText("aaaaa", 64, 64);
+                        //console.log(`player ${player.position.str}`);
+                    } else {
+                        ctx.fillStyle = '#9999FF';
+                        ctx.fillRect(x - 8, height - y - 15, tileSize - 2, tileSize - 2);
+                    }
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
